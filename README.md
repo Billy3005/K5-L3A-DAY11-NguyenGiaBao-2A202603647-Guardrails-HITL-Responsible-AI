@@ -1,5 +1,11 @@
 # Day 11 — Controlled Agent Security (2026)
 
+**Học viên** Nguyễn Gia Bảo · **MSSV** 2A202603647 · **Lớp** K5 L3A
+
+Chạy từ thư mục gốc. Sau khi cài `requirements.txt` trong môi trường ảo và cấu hình `.env` local, dùng `python -X utf8 src/main.py --part 2` để kiểm tra bộ lọc, `python -X utf8 src/main.py --part 3` để sinh kết quả Blue và `python -X utf8 scripts/grade.py --submission-dir .` để tự kiểm gói nộp.
+
+Blue gọi model OpenRouter cố định cho các ca cần phản hồi. Bài spam đi qua cùng chuỗi plugin đầu vào và dừng trước model để đo rate limit của lab. System prompt của Blue vẫn nhúng secret demo như starter; việc chặn rò rỉ do guardrail đảm nhiệm (input chặn yêu cầu moi credential, output redact giá trị bảo vệ + PII).
+
 > 👤 **Hình thức:** bài tập **cá nhân** (1 người / 1 MSSV).  
 > 🎯 **Mục tiêu:** đóng vai **Blue Team** để học cách xây Guardrails phòng thủ, rồi đóng vai **Red Team** để tấn công agent **Red** hoặc **Red Advance**.  
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).

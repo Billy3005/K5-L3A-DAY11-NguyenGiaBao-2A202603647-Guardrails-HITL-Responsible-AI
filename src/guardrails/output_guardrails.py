@@ -13,6 +13,53 @@ from google.adk import runners
 from google.adk.plugins import base_plugin
 
 from core.utils import chat_with_agent
+from core.config import DEMO_SECRETS
+
+# A credential value: a whole quoted string, or an unquoted run up to
+# whitespace / , ; (keeps punctuation such as "!" inside the value).
+_SECRET_VALUE = r"(?:\x22[^\x22\n]*\x22|'[^'\n]*'|\x60[^\x60\n]*\x60|[^\s,;]+)"
+
+SENSITIVE_PATTERNS = {
+    "email": r"[\w.+-]+@[\w.-]+\.[a-z]{2,}\b",
+    "phone": r"(?<!\w)(?:\+?84[ .-]?|0)(?:\d[ .-]?){8,9}\d(?!\w)",
+    "API key": r"\bsk-[a-z0-9_-]+",
+    "password": r"\b(?:password|passwd|pwd|mật khẩu|mat khau)\s*(?:[:=]|\bis\b|\blà\b|\bla\b)\s*"
+    + _SECRET_VALUE,
+    "database host": r"\b(?:db[_ -]?host|database host)\s*(?:[:=]|\bis\b)\s*[^\s,;]+",
+}
+
+# CMND (9 digits) / CCCD (12 digits). Not a regex-only rule: a 9/12-digit
+# number that is clearly a money amount ("500000000 VND", "amount 500000000")
+# is a normal banking value and must not be redacted (low false positives).
+# "." / "," only count as part of the number when they are digit separators
+# (e.g. "1.500.000.000"); sentence punctuation after an ID must not hide it.
+_NATIONAL_ID = re.compile(r"(?<![\w$])(?<!\d[.,])(\d{12}|\d{9})(?!\w)(?![.,]\d)")
+_CURRENCY_AFTER = re.compile(r"\s*(?:vnd|vnđ|đồng|dong|đ|usd|eur|\$|%)(?!\w)", re.IGNORECASE)
+_AMOUNT_BEFORE = re.compile(
+    r"(?:amount|total|balance|sum|fee|limit|số tiền|so tien|số dư|so du|phí|phi)"
+    r"(?:\s+(?:is|of|=|:|là|la))?\s*[:=]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _redact_national_ids(text: str) -> tuple[str, int]:
+    count = 0
+
+    def repl(match: re.Match) -> str:
+        nonlocal count
+        after = text[match.end():match.end() + 8]
+        before = text[max(0, match.start() - 24):match.start()]
+        if _CURRENCY_AFTER.match(after) or _AMOUNT_BEFORE.search(before):
+            return match.group(0)  # money amount, not an identity number
+        count += 1
+        return "[REDACTED]"
+
+    return _NATIONAL_ID.sub(repl, text), count
+
+if DEMO_SECRETS:
+    SENSITIVE_PATTERNS["protected value"] = "|".join(
+        re.escape(value) for value in sorted(DEMO_SECRETS, key=len, reverse=True)
+    )
 
 
 # ============================================================
@@ -39,21 +86,14 @@ def content_filter(response: str) -> dict:
     issues = []
     redacted = response
 
-    # PII patterns to check
-    PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
-    }
+    for name, pattern in SENSITIVE_PATTERNS.items():
+        redacted, count = re.subn(pattern, "[REDACTED]", redacted, flags=re.IGNORECASE)
+        if count:
+            issues.append(f"{name}: {count} found")
 
-    for name, pattern in PII_PATTERNS.items():
-        matches = re.findall(pattern, response, re.IGNORECASE)
-        if matches:
-            issues.append(f"{name}: {len(matches)} found")
-            redacted = re.sub(pattern, "[REDACTED]", redacted, flags=re.IGNORECASE)
+    redacted, count = _redact_national_ids(redacted)
+    if count:
+        issues.append(f"national ID: {count} found")
 
     return {
         "safe": len(issues) == 0,
@@ -154,7 +194,7 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         """Extract text from LLM response."""
         text = ""
         if hasattr(llm_response, "content") and llm_response.content:
-            for part in llm_response.content.parts:
+            for part in llm_response.content.parts or []:
                 if hasattr(part, "text") and part.text:
                     text += part.text
         return text
@@ -172,16 +212,18 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         if not response_text:
             return llm_response
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
-        # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
-
-        return llm_response  # TODO: modify if needed
+        result = content_filter(response_text)
+        cleaned = result["redacted"]
+        if not result["safe"]:
+            self.redacted_count += 1
+        if self.use_llm_judge and not (await llm_safety_check(cleaned))["safe"]:
+            self.blocked_count += 1
+            cleaned = "Response withheld by output guardrail."
+        if cleaned != response_text:
+            llm_response.content = types.Content(
+                role="model", parts=[types.Part.from_text(text=cleaned)]
+            )
+        return llm_response
 
 
 # ============================================================
