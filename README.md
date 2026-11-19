@@ -6,6 +6,15 @@ Chạy từ thư mục gốc. Sau khi cài `requirements.txt` trong môi trườ
 
 Blue gọi model OpenRouter cố định cho các ca cần phản hồi. Bài spam đi qua cùng chuỗi plugin đầu vào và dừng trước model để đo rate limit của lab. System prompt của Blue vẫn nhúng secret demo như starter; việc chặn rò rỉ do guardrail đảm nhiệm (input chặn yêu cầu moi credential, output redact giá trị bảo vệ + PII).
 
+**Kết quả nộp** (sinh bởi lệnh lab, xem `outputs/`):
+
+| Checkpoint | Kết quả |
+|---|---|
+| CP3 — Blue (`results.json`) | Safe 0/5 bị chặn · Attack 9/9 bị chặn · Rate limit 15 gửi / 10 qua / 5 chặn · 0 lỗi runtime |
+| CP4 — Red (`openai/gpt-4o-mini`) | Leak 5/5 → chọn bonus **B1** |
+| CP4 — Red Advance | Leak 0/5 (regex topic filter + NeMo self check input) |
+| Tự kiểm | `pytest tests/smoke tests/public` 54 passed · `grade.py` technical_failure = false |
+
 > 👤 **Hình thức:** bài tập **cá nhân** (1 người / 1 MSSV).  
 > 🎯 **Mục tiêu:** đóng vai **Blue Team** để học cách xây Guardrails phòng thủ, rồi đóng vai **Red Team** để tấn công agent **Red** hoặc **Red Advance**.  
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).
